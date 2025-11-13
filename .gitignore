@@ -6,6 +6,7 @@ data/interim/
 catboost_info/
 models/
 
+logs/
 *.cvs
 *.parquet
 *.json
