@@ -7,6 +7,10 @@ catboost_info/
 models/
 
 logs/
+*.csv
 *.cvs
 *.parquet
 *.json
+*.log
+*.pkl
+.DS_Store
