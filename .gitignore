@@ -1,12 +1,56 @@
-# Ignore dataset files
-Dataset_1_UK_housing/
-Dataset_2_UK_Historic_Electricity_Demand_Data/
-data/
-data/interim/
-catboost_info/
-models/
+##############################################
+# IGNORE ALL LARGE DIRECTORIES & RAW DATA   #
+##############################################
 
-logs/
-*.cvs
-*.parquet
-*.json
+catboost_info/
+catboost_info/**
+
+data/
+data/**
+Dataset_1_UK_housing/
+Dataset_1_UK_housing/**
+Dataset_2_UK_Historic_Electricity_Demand_Data/
+Dataset_2_UK_Historic_Electricity_Demand_Data/**
+
+##############################################
+# IGNORE MODELS & TRAINING OUTPUT           #
+##############################################
+
+models/
+models/**
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.h5
+
+##############################################
+# IGNORE NOTEBOOK CHECKPOINTS               #
+##############################################
+
+**/.ipynb_checkpoints/
+
+##############################################
+# IGNORE Python CACHE                       #
+##############################################
+
+__pycache__/
+*.pyc
+*.cache
+*.log
+
+##############################################
+# IGNORE ENV FILES                          #
+##############################################
+
+venv/
+.env
+.env.*
+*.env
+
+##############################################
+# IGNORE OS FILES                           #
+##############################################
+
+.DS_Store
+Thumbs.db
