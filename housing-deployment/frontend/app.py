@@ -16,8 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# API endpoint - change this based on your deployment
-API_URL = "http://localhost:8000"
+# API endpoint
+API_URL = "http://84.235.175.123:8000"
+
 # Title
 st.title("🏠 UK Housing Price Predictor")
 st.markdown("""
@@ -25,15 +26,15 @@ This tool predicts house prices in England & Wales based on property characteris
 **Model:** LightGBM trained on 5.9M transactions (1995-2017)
 """)
 
-# Load data for dropdowns
+# Load dropdown data from JSON
 @st.cache_data
 def load_data():
-    """Load sample data to get valid categories"""
+    """Load dropdown values from tiny JSON"""
     try:
-        df = pd.read_parquet('../../data/cleaned/housing_FULL_clean.parquet')
-        return df
+        with open('housing_dropdowns.json', 'r') as f:
+            return json.load(f)
     except FileNotFoundError:
-        st.error("❌ Data file not found! Using default values.")
+        st.error("❌ Dropdown data not found! Using defaults.")
         return None
 
 # Check API health
@@ -67,8 +68,8 @@ def predict_price(data):
         st.error(f"Error: {str(e)}")
         return None
 
-# Load data
-df = load_data()
+# Load dropdown data
+dropdown_data = load_data()
 
 # Check API status
 with st.spinner("Checking backend..."):
@@ -78,7 +79,7 @@ if api_healthy:
     st.success(f"✅ Connected to backend API: {API_URL}")
 else:
     st.error(f"❌ Backend API not responding: {API_URL}")
-    st.info("Make sure the backend is running: `cd backend && uvicorn api:app --reload`")
+    st.info("Make sure the backend is running")
 
 # Sidebar
 st.sidebar.header("📊 System Status")
@@ -96,15 +97,15 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.subheader("📍 Location")
     
-    if df is not None:
-        counties = sorted(df['county'].unique())
-        county = st.selectbox("County", counties, index=counties.index('GREATER LONDON') if 'GREATER LONDON' in counties else 0)
+    if dropdown_data is not None:
+        counties = sorted(dropdown_data['counties'])
+        county = st.selectbox("County", counties)
         
-        districts_in_county = sorted(df[df['county'] == county]['district'].unique())
-        district = st.selectbox("District", districts_in_county)
+        districts = sorted(dropdown_data['districts'])
+        district = st.selectbox("District", districts)
         
-        towns_in_district = sorted(df[df['district'] == district]['town_city'].unique())
-        town_city = st.selectbox("Town/City", towns_in_district)
+        towns = sorted(dropdown_data['towns'])
+        town_city = st.selectbox("Town/City", towns)
     else:
         county = st.text_input("County", "GREATER LONDON")
         district = st.text_input("District", "CITY OF WESTMINSTER")
@@ -113,11 +114,11 @@ with col1:
 with col2:
     st.subheader("🏡 Property Details")
     
-    if df is not None:
-        property_types = sorted(df['property_type_label'].unique())
+    if dropdown_data is not None:
+        property_types = sorted(dropdown_data['property_types'])
         property_type = st.selectbox("Property Type", property_types)
         
-        tenure_types = sorted(df['tenure_label'].unique())
+        tenure_types = sorted(dropdown_data['tenure_types'])
         tenure = st.selectbox("Tenure Type", tenure_types)
     else:
         property_type = st.selectbox("Property Type", ["Detached", "Semi-detached", "Terraced", "Flat"])
@@ -141,7 +142,6 @@ if st.button("🔮 Predict Price", type="primary", use_container_width=True):
     
     if not api_healthy:
         st.error("❌ Backend API is not running! Cannot make predictions.")
-        st.info("Start the backend with: `cd backend && uvicorn api:app --reload`")
     else:
         with st.spinner("Calling backend API..."):
             
