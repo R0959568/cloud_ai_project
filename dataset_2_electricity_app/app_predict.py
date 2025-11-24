@@ -58,13 +58,20 @@ def load_historical_data():
             df['datetime'] = pd.to_datetime(df['settlement_date'])
             df = df.dropna(subset=['datetime', 'demand_value'])
             df = df.sort_values('datetime').reset_index(drop=True)
-            # Keep only last 2 weeks for memory efficiency (enough for 7-day lags)
-            df = df.tail(336 * 2)  # 336 half-hours = 1 week
+            # Keep ALL historical data (not just last 2 weeks)
             return df
     
     return None
 
-# Load the best model (Gradient Boosting with R² = 0.70)
+@st.cache_data
+def get_data_date_range():
+    """Get the date range of available historical data"""
+    hist_data = load_historical_data()
+    if hist_data is not None and len(hist_data) > 0:
+        return hist_data['datetime'].min(), hist_data['datetime'].max()
+    return None, None
+
+# Load the Gradient Boosting model
 @st.cache_resource
 def load_best_model():
     # Try multiple paths (local development vs deployment)
@@ -84,12 +91,12 @@ def load_best_model():
         st.error("❌ Models directory not found. Please ensure data/final/models exists.")
         return None
     
-    # Load Gradient Boosting model (better predictions than baseline)
+    # Load Gradient Boosting model
     gb_path = models_dir / 'gradient_boosting_enhanced.pkl'
     if gb_path.exists():
         return joblib.load(gb_path)
     
-    st.error("❌ Best model not found. Please run 02_models_local.ipynb first.")
+    st.error("❌ Gradient Boosting model not found. Please run 02_models_local.ipynb first.")
     return None
 
 # Load model metrics
@@ -114,6 +121,7 @@ try:
     selected_model = load_best_model()
     best_metrics = load_metrics()
     historical_data = load_historical_data()
+    min_date, max_date = get_data_date_range()
     
     if selected_model is None:
         st.error("❌ Best model not found. Please run 02_models_local.ipynb first.")
@@ -204,14 +212,40 @@ def compute_enhanced_features(prediction_datetime, historical_df=None):
     month_hour = month * hour
     
     # Lag features and rolling statistics (if historical data available)
-    demand_lag_1 = 0
-    demand_lag_1d = 0
-    demand_lag_3h = 0
-    demand_lag_7d = 0
-    demand_rolling_mean_24h = 0
-    demand_rolling_std_24h = 0
-    demand_rolling_mean_7d = 0
-    demand_diff_from_24h_avg = 0
+    # Calculate realistic typical demand based on hour, season, and day of week
+    # Base demand varies significantly by hour of day
+    hour_demand_profile = {
+        0: 23000, 1: 21000, 2: 20000, 3: 19500, 4: 19000, 5: 20000,
+        6: 24000, 7: 30000, 8: 35000, 9: 37000, 10: 38000, 11: 38500,
+        12: 38000, 13: 37500, 14: 37000, 15: 36500, 16: 37000, 17: 39000,
+        18: 41000, 19: 42000, 20: 40000, 21: 37000, 22: 32000, 23: 27000
+    }
+    
+    typical_demand = hour_demand_profile.get(hour, 35000)
+    
+    # Seasonal adjustment (Winter higher, Summer lower)
+    if season == 0:  # Winter
+        typical_demand *= 1.15
+    elif season == 1:  # Spring
+        typical_demand *= 1.0
+    elif season == 2:  # Summer
+        typical_demand *= 0.85
+    else:  # Autumn
+        typical_demand *= 1.05
+    
+    # Weekend adjustment (lower demand)
+    if is_weekend:
+        typical_demand *= 0.90
+    
+    # Calculate lag features with hour-specific values
+    demand_lag_1 = typical_demand * 0.98  # Very recent, similar to current
+    demand_lag_1d = typical_demand * 1.0  # Same hour yesterday, same pattern
+    demand_lag_3h = hour_demand_profile.get((hour - 3) % 24, 35000) * (1.15 if season == 0 else 0.85 if season == 2 else 1.0)
+    demand_lag_7d = typical_demand * 1.0  # Same hour last week
+    demand_rolling_mean_24h = typical_demand * 0.98
+    demand_rolling_std_24h = 2500  # Typical standard deviation
+    demand_rolling_mean_7d = typical_demand * 0.99
+    demand_diff_from_24h_avg = typical_demand * 0.02
     
     if historical_df is not None:
         # Find the closest historical record before prediction time
@@ -257,12 +291,21 @@ def compute_enhanced_features(prediction_datetime, historical_df=None):
                 demand_rolling_mean_7d = rolling_7d_data['demand_value'].mean()
     
     # Return features in the same order as training
-    # Note: Using 2024 as a fixed year to avoid extrapolation issues with future dates
-    # The year feature isn't actually predictive for electricity demand - seasonal patterns matter more
-    fixed_year = 2024  # Use a year from training data range
+    # Feature names must match exactly with training data
+    feature_names = [
+        'year', 'month', 'day', 'hour', 'day_of_week', 'quarter', 'week_of_year',
+        'is_weekend', 'is_business_hours', 'is_night', 'is_peak_morning', 'is_peak_evening',
+        'season',
+        'hour_sin', 'hour_cos', 'month_sin', 'month_cos', 'day_of_week_sin', 'day_of_week_cos',
+        'demand_lag_1', 'demand_lag_1d', 'demand_lag_3h', 'demand_lag_7d',
+        'demand_rolling_mean_24h', 'demand_rolling_std_24h', 'demand_rolling_mean_7d',
+        'demand_diff_from_24h_avg',
+        'is_holiday', 'is_day_before_holiday', 'is_day_after_holiday',
+        'weekend_hour', 'holiday_hour', 'month_hour'
+    ]
     
-    features = [
-        fixed_year, month, day, hour, day_of_week, quarter, week_of_year,
+    feature_values = [
+        year, month, day, hour, day_of_week, quarter, week_of_year,
         is_weekend, is_business_hours, is_night, is_peak_morning, is_peak_evening,
         season,
         hour_sin, hour_cos, month_sin, month_cos, day_of_week_sin, day_of_week_cos,
@@ -273,7 +316,8 @@ def compute_enhanced_features(prediction_datetime, historical_df=None):
         weekend_hour, holiday_hour, month_hour
     ]
     
-    return np.array([features])
+    # Return as DataFrame with proper column names (not NumPy array)
+    return pd.DataFrame([feature_values], columns=feature_names)
 
 # Main content - Single Prediction
 st.header("Single Time Point Prediction")
@@ -286,8 +330,8 @@ with col1:
     # Date and time inputs
     prediction_date = st.date_input(
             "Select Date",
-        value=datetime.now(),
-        min_value=datetime(2025, 1, 1),
+        value=datetime.now().date(),
+        min_value=datetime(2001, 1, 1),
         max_value=datetime(2030, 12, 31)
     )
     
@@ -333,6 +377,22 @@ if st.button("🔮 Predict Demand", type="primary", use_container_width=True):
     # Use enhanced features with historical data
     features = compute_enhanced_features(prediction_datetime, historical_data)
     
+    # Debug: Show some key features
+    with st.expander("🔍 Debug: Feature Values"):
+        col_debug1, col_debug2, col_debug3 = st.columns(3)
+        with col_debug1:
+            st.write(f"**Year:** {features['year'].values[0]}")
+            st.write(f"**Hour:** {features['hour'].values[0]}")
+            st.write(f"**Season:** {features['season'].values[0]}")
+        with col_debug2:
+            st.write(f"**Is Weekend:** {features['is_weekend'].values[0]}")
+            st.write(f"**Is Peak Morning:** {features['is_peak_morning'].values[0]}")
+            st.write(f"**Is Peak Evening:** {features['is_peak_evening'].values[0]}")
+        with col_debug3:
+            st.write(f"**Lag 1d:** {features['demand_lag_1d'].values[0]:,.0f} MW")
+            st.write(f"**Rolling 24h Mean:** {features['demand_rolling_mean_24h'].values[0]:,.0f} MW")
+            st.write(f"**Rolling 7d Mean:** {features['demand_rolling_mean_7d'].values[0]:,.0f} MW")
+    
     # Make prediction
     prediction = selected_model.predict(features)[0]
     
@@ -340,63 +400,11 @@ if st.button("🔮 Predict Demand", type="primary", use_container_width=True):
     st.markdown("---")
     st.subheader("Prediction Result")
     
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        st.metric(
-            label="Predicted Electricity Demand",
-            value=f"{prediction:,.0f} MW",
-            delta=None
-        )
-    
-    with col2:
-        # Context - typical UK demand ranges from 20,000 to 50,000 MW
-        if prediction < 25000:
-            st.info("🌙 Low demand period")
-        elif prediction < 35000:
-            st.success("📊 Normal demand")
-        elif prediction < 45000:
-            st.warning("📈 High demand")
-        else:
-            st.error("🔥 Peak demand")
-    
-    with col3:
-        confidence = 70.0  # R² of Gradient Boosting model
-        st.metric("Model Confidence", f"{confidence:.1f}%")
-    
-    # Visualization
-    st.markdown("---")
-    st.subheader("Prediction Context")
-    
-    # Create gauge chart
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=prediction,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "Demand (MW)", 'font': {'size': 24}},
-        delta={'reference': 32000, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
-        gauge={
-            'axis': {'range': [None, 60000], 'tickwidth': 1, 'tickcolor': "darkblue"},
-            'bar': {'color': "darkblue"},
-            'bgcolor': "white",
-            'borderwidth': 2,
-            'bordercolor': "gray",
-            'steps': [
-                {'range': [0, 25000], 'color': '#90EE90'},
-                {'range': [25000, 35000], 'color': '#FFD700'},
-                {'range': [35000, 45000], 'color': '#FFA500'},
-                {'range': [45000, 60000], 'color': '#FF6347'}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': 45000
-            }
-        }
-    ))
-    
-    fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    st.metric(
+        label="Predicted Electricity Demand",
+        value=f"{prediction:,.0f} MW",
+        delta=None
+    )
 
 # Footer
 st.markdown("---")

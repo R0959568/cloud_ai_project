@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: electricity-backend
+    ports:
+      - "8002:8000"  # Different port to avoid conflict with housing
+    volumes:
+      - ../dataset_2_electricity_app/data:/app/data:ro  # Mount data as read-only
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: electricity-frontend
+    ports:
+      - "8502:8501"  # Different port to avoid conflict with housing
+    environment:
+      - API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: electricity-network

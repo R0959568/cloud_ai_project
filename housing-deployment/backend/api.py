@@ -74,13 +74,34 @@ async def load_model():
     """Load the trained model on startup"""
     global model
     try:
-        model_path = Path(__file__).parent / "models" / "lightgbm_housing.pkl"
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        logger.info("✅ Model loaded successfully!")
-    except FileNotFoundError:
-        logger.error("❌ Model file not found!")
-        raise
+        # Debug: List all files
+        import os
+        logger.info(f"Current directory: {os.getcwd()}")
+        logger.info(f"Files in current dir: {os.listdir('.')}")
+        if os.path.exists('models'):
+            logger.info(f"Files in models dir: {os.listdir('models')}")
+        
+        # Try multiple paths (local vs Railway deployment)
+        model_paths = [
+            Path("lightgbm_housing.pkl"),               # Same directory (Railway with root dir)
+            Path("models/lightgbm_housing.pkl"),        # models subfolder
+            Path("../../models/lightgbm_housing.pkl"),  # Local development
+            Path("/app/models/lightgbm_housing.pkl"),   # Railway full repo
+        ]
+        
+        model_loaded = False
+        for model_path in model_paths:
+            if model_path.exists():
+                with open(model_path, 'rb') as f:
+                    model = pickle.load(f)
+                logger.info(f"✅ Model loaded from {model_path}")
+                model_loaded = True
+                break
+        
+        if not model_loaded:
+            logger.error(f"❌ Model file not found in any of these paths: {model_paths}")
+            raise FileNotFoundError("Model file not found")
+            
     except Exception as e:
         logger.error(f"❌ Error loading model: {e}")
         raise
