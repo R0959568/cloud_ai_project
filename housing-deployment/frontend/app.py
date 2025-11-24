@@ -5,7 +5,9 @@ Streamlit frontend that calls the FastAPI backend
 """
 
 import streamlit as st
+import pandas as pd
 import requests
+import json
 
 # Page config
 st.set_page_config(
@@ -23,6 +25,17 @@ st.markdown("""
 This tool predicts house prices in England & Wales based on property characteristics.
 **Model:** LightGBM trained on 5.9M transactions (1995-2017)
 """)
+
+# Load dropdown data from JSON
+@st.cache_data
+def load_data():
+    """Load dropdown values from tiny JSON"""
+    try:
+        with open('housing_dropdowns.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.error("❌ Dropdown data not found! Using defaults.")
+        return None
 
 # Check API health
 def check_api_health():
@@ -48,12 +61,15 @@ def predict_price(data):
             st.error(f"API Error: {response.status_code}")
             return None
     except requests.exceptions.ConnectionError:
-        st.error("❌ Cannot connect to backend API!")
+        st.error("❌ Cannot connect to backend API! Make sure it's running.")
         st.code(f"Backend URL: {API_URL}")
         return None
     except Exception as e:
         st.error(f"Error: {str(e)}")
         return None
+
+# Load dropdown data
+dropdown_data = load_data()
 
 # Check API status
 with st.spinner("Checking backend..."):
@@ -63,6 +79,7 @@ if api_healthy:
     st.success(f"✅ Connected to backend API: {API_URL}")
 else:
     st.error(f"❌ Backend API not responding: {API_URL}")
+    st.info("Make sure the backend is running")
 
 # Sidebar
 st.sidebar.header("📊 System Status")
@@ -79,20 +96,42 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     st.subheader("📍 Location")
-    county = st.text_input("County", "GREATER LONDON")
-    district = st.text_input("District", "CITY OF WESTMINSTER")
-    town_city = st.text_input("Town/City", "LONDON")
+    
+    if dropdown_data is not None:
+        counties = sorted(dropdown_data['counties'])
+        county = st.selectbox("County", counties)
+        
+        districts = sorted(dropdown_data['districts'])
+        district = st.selectbox("District", districts)
+        
+        towns = sorted(dropdown_data['towns'])
+        town_city = st.selectbox("Town/City", towns)
+    else:
+        county = st.text_input("County", "GREATER LONDON")
+        district = st.text_input("District", "CITY OF WESTMINSTER")
+        town_city = st.text_input("Town/City", "LONDON")
 
 with col2:
     st.subheader("🏡 Property Details")
-    property_type = st.text_input("Property Type", "Detached")
-    tenure = st.text_input("Tenure Type", "Freehold")
+    
+    if dropdown_data is not None:
+        property_types = sorted(dropdown_data['property_types'])
+        property_type = st.selectbox("Property Type", property_types)
+        
+        tenure_types = sorted(dropdown_data['tenure_types'])
+        tenure = st.selectbox("Tenure Type", tenure_types)
+    else:
+        property_type = st.selectbox("Property Type", ["Detached", "Semi-detached", "Terraced", "Flat"])
+        tenure = st.selectbox("Tenure Type", ["Freehold", "Leasehold"])
+    
     is_new_build = st.checkbox("New Build", value=False)
 
 with col3:
     st.subheader("📅 Date")
+    
     year = st.slider("Year", 1995, 2017, 2017)
     month = st.slider("Month", 1, 12, 6)
+    
     quarter = (month - 1) // 3 + 1
     st.info(f"Quarter: Q{quarter}")
 
