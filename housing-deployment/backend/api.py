@@ -74,7 +74,7 @@ async def load_model():
     """Load the trained model on startup"""
     global model
     try:
-        model_path = Path("../../models/lightgbm_housing.pkl")
+        model_path = Path("models/lightgbm_housing.pkl")
         with open(model_path, 'rb') as f:
             model = pickle.load(f)
         logger.info("✅ Model loaded successfully!")
