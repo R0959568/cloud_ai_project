@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Large model files
+models/*.pkl
+models/*.joblib
+models/*.h5
+
+# Large data files
+data/*.parquet
+data/*.csv
+data/*.xlsx
+*.parquet
+*.csv
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
+
+# Secrets
+.env
+secrets.toml
+.streamlit/secrets.toml
+
+# SSH keys
+*.pem
+*.key
